@@ -6,6 +6,8 @@
 
 #include <AprilTags/TagDetector.h>
 #include <tf/transform_broadcaster.h>
+#include <geometry_msgs/PoseArray.h>
+#include <apriltags_ros/AprilTagDetectionArray.h>
 
 namespace apriltags_ros{
 
@@ -27,8 +29,18 @@ class AprilTagDetector{
  public:
   AprilTagDetector(ros::NodeHandle& nh, ros::NodeHandle& pnh);
   ~AprilTagDetector();
+
+  /** Use this function to detect tags programatically */
+  bool detectTags(
+      const sensor_msgs::ImageConstPtr& msg,
+      const sensor_msgs::CameraInfoConstPtr& cam_info,
+      AprilTagDetectionArray *tag_detection_array = NULL,
+      geometry_msgs::PoseArray *tag_pose_array = NULL,
+      std::vector<tf::StampedTransform> *tag_transform_array = NULL,
+      sensor_msgs::ImagePtr *detections_img = NULL);
+
  private:
-  void imageCb(const sensor_msgs::ImageConstPtr& msg,const sensor_msgs::CameraInfoConstPtr& cam_info);
+  void imageCb(const sensor_msgs::ImageConstPtr& msg, const sensor_msgs::CameraInfoConstPtr& cam_info);
   std::map<int, AprilTagDescription> parse_tag_descriptions(XmlRpc::XmlRpcValue& april_tag_descriptions);
 
  private:

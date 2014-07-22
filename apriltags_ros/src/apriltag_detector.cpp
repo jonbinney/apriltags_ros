@@ -43,18 +43,26 @@ AprilTagDetector::~AprilTagDetector(){
   image_sub_.shutdown();
 }
 
-void AprilTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg,const sensor_msgs::CameraInfoConstPtr& cam_info){
+bool AprilTagDetector::detectTags(
+   const sensor_msgs::ImageConstPtr& msg,
+   const sensor_msgs::CameraInfoConstPtr& cam_info,
+   AprilTagDetectionArray *tag_detection_array,
+   geometry_msgs::PoseArray *tag_pose_array,
+   std::vector<tf::StampedTransform> *tag_transform_array,
+   sensor_msgs::ImagePtr *detections_img){
+
+  // Convert to OpenCV image
   cv_bridge::CvImagePtr cv_ptr;
   try{
     cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
   }
   catch (cv_bridge::Exception& e){
     ROS_ERROR("cv_bridge exception: %s", e.what());
-    return;
+    return false;
   }
   cv::Mat gray;
   cv::cvtColor(cv_ptr->image, gray, CV_BGR2GRAY);
-  std::vector<AprilTags::TagDetection>	detections = tag_detector_->extractTags(gray);
+  std::vector<AprilTags::TagDetection> detections = tag_detector_->extractTags(gray);
   ROS_DEBUG("%d tag detected", (int)detections.size());
 
   double fx = cam_info->K[0];
@@ -65,10 +73,10 @@ void AprilTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg,const senso
   if(!sensor_frame_id_.empty())
     cv_ptr->header.frame_id = sensor_frame_id_;
 
-  AprilTagDetectionArray tag_detection_array;
-  geometry_msgs::PoseArray tag_pose_array;
-  tag_pose_array.header = cv_ptr->header;
+  if (tag_pose_array != NULL)
+    tag_pose_array->header = cv_ptr->header;
 
+  // Compute 3D pose for each detection
   BOOST_FOREACH(AprilTags::TagDetection detection, detections){
     std::map<int, AprilTagDescription>::const_iterator description_itr = descriptions_.find(detection.id);
     if(description_itr == descriptions_.end()){
@@ -82,7 +90,7 @@ void AprilTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg,const senso
     Eigen::Matrix4d transform = detection.getRelativeTransform(tag_size, fx, fy, px, py);
     Eigen::Matrix3d rot = transform.block(0,0,3,3);
     Eigen::Quaternion<double> rot_quaternion = Eigen::Quaternion<double>(rot);
-    
+
     geometry_msgs::PoseStamped tag_pose;
     tag_pose.pose.position.x = transform(0,3);
     tag_pose.pose.position.y = transform(1,3);
@@ -97,16 +105,48 @@ void AprilTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg,const senso
     tag_detection.pose = tag_pose;
     tag_detection.id = detection.id;
     tag_detection.size = tag_size;
-    tag_detection_array.detections.push_back(tag_detection);
-    tag_pose_array.poses.push_back(tag_pose.pose);
 
-    tf::Stamped<tf::Transform> tag_transform;
-    tf::poseStampedMsgToTF(tag_pose, tag_transform);
-    tf_pub_.sendTransform(tf::StampedTransform(tag_transform, tag_transform.stamp_, tag_transform.frame_id_, description.frame_name()));
+    if (tag_detection_array != NULL)
+      tag_detection_array->detections.push_back(tag_detection);
+
+    if (tag_pose_array != NULL)
+      tag_pose_array->poses.push_back(tag_detection.pose.pose);
+
+    if (tag_transform_array != NULL){
+      tf::Stamped<tf::Transform> tag_transform;
+      tf::poseStampedMsgToTF(tag_detection.pose, tag_transform);
+      tag_transform_array->push_back(tf::StampedTransform(
+            tag_transform, tag_transform.stamp_, tag_transform.frame_id_, description.frame_name()));
+    }
   }
+  *detections_img = cv_ptr->toImageMsg();
+  return true;
+}
+
+void AprilTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg,const sensor_msgs::CameraInfoConstPtr& cam_info){
+  AprilTagDetectionArray tag_detection_array;
+  geometry_msgs::PoseArray tag_pose_array;
+  std::vector<tf::StampedTransform> tag_transform_array;
+  sensor_msgs::ImagePtr detections_img;
+
+  // Find tags in the image
+  bool r = this->detectTags(
+    msg, cam_info, &tag_detection_array, &tag_pose_array, &tag_transform_array,
+    &detections_img);
+  if (!r)
+    return;
+
+  assert(detections_img);
+
+  // Publish a transform for each tag
+  BOOST_FOREACH(tf::StampedTransform tag_transform, tag_transform_array){
+    tf_pub_.sendTransform(tag_transform);
+  }
+
+  // Publish tag poses and other detection info
   detections_pub_.publish(tag_detection_array);
   pose_pub_.publish(tag_pose_array);
-  image_pub_.publish(cv_ptr->toImageMsg());
+  image_pub_.publish(detections_img);
 }
 
 

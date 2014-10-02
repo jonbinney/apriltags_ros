@@ -2,9 +2,13 @@
 <package>
   <name>apriltags</name>
   <version>0.1.1</version>
-  <description>A catkin version of the C++ apriltags library</description>
+  <description>
+  A catkin version of the C++ apriltags library.
 
-  <maintainer email="mitchell@todo.todo">mitchell</maintainer>
+  Forked from tps://github.com/RIVeR-Lab/apriltags_ros
+  </description>
+
+  <maintainer email="binnney@savioke.com">Jon Binney</maintainer>
 
 
   <!-- One license tag required, multiple allowed, one license per tag -->
